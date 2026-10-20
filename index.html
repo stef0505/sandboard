@@ -4,6 +4,11 @@ const root=document.getElementById('game'),canvas=document.getElementById('canva
 const distEl=document.getElementById('dist'),scoreEl=document.getElementById('score'),comboEl=document.getElementById('combo');
 let W=390,H=330,dpr=1,last=0,playing=false,holding=false,px=0,py=0,vy=0,speed=175,angle=0,spin=0,air=false,score=0,dist=0,cam=0;
 const TAU=Math.PI*2;
+// Obstacles are deterministic and start beyond the first practice dunes.
+function obstacleAt(i){const x=560+i*510;return {x,type:i%3===1?'gap':'rock',width:i%3===1?82:28}}
+function nearObstacles(){const a=[];for(let i=Math.max(0,Math.floor((px-560)/510)-2);i<Math.floor((px+W+300-560)/510)+2;i++)a.push(obstacleAt(i));return a}
+function inGap(x){for(const o of nearObstacles())if(o.type==='gap'&&x>o.x&&x<o.x+o.width)return true;return false}
+
 function resize(){W=canvas.clientWidth||390;H=canvas.clientHeight||330;dpr=Math.min(devicePixelRatio||1,2);canvas.width=W*dpr;canvas.height=H*dpr;ctx.setTransform(dpr,0,0,dpr,0,0)}
 function terrain(x){return H*.68+Math.sin(x*.005)*42+Math.sin(x*.011+1)*17+Math.sin(x*.0023)*24}
 function slope(x){return Math.atan2(terrain(x+3)-terrain(x-3),6)}
@@ -16,14 +21,17 @@ canvas.addEventListener('pointerdown',down);root.addEventListener('pointerup',up
 window.addEventListener('keydown',e=>{if(e.code==='Space'){e.preventDefault();if(!e.repeat)down(e)}});window.addEventListener('keyup',e=>{if(e.code==='Space')up(e)});
 function update(dt){if(!playing)return;px+=speed*dt;dist=px/10;cam=px-W*.28;
 if(air){vy+=650*dt;py+=vy*dt;if(holding){angle-=5.8*dt;spin+=5.8*dt}
-const ground=terrain(px)-12;if(py>=ground&&vy>0){const a=slope(px);let diff=Math.atan2(Math.sin(angle-a),Math.cos(angle-a));if(Math.abs(diff)>.85){finish();return}py=ground;air=false;vy=0;angle=a;const flips=Math.floor((spin+.22)/TAU);if(flips>0){const points=[0,10,60,200,600][Math.min(flips,4)]||600;score+=points;speed=Math.min(390,speed+flips*22);comboEl.textContent=flips+'× salto'}spin=0}}
-else{const a=slope(px);angle=a;py=terrain(px)-12;speed+=Math.sin(a)*310*dt-speed*.018*dt;speed=Math.max(100,Math.min(390,speed))}
-score+=dt*(air?2:1);distEl.textContent=Math.floor(dist)+' m';scoreEl.textContent=Math.floor(score)}
+const ground=terrain(px)-12;if(!inGap(px)&&py>=ground&&vy>0){const a=slope(px);let diff=Math.atan2(Math.sin(angle-a),Math.cos(angle-a));if(Math.abs(diff)>.85){finish();return}py=ground;air=false;vy=0;angle=a;const flips=Math.floor((spin+.22)/TAU);if(flips>0){const points=[0,10,60,200,600][Math.min(flips,4)]||600;score+=points;speed=Math.min(390,speed+flips*22);comboEl.textContent=flips+'× salto'}spin=0}}
+else{if(inGap(px)){air=true;vy=0}else{const a=slope(px);angle=a;py=terrain(px)-12;speed+=Math.sin(a)*310*dt-speed*.018*dt;speed=Math.max(100,Math.min(390,speed))}}
+if(py>H+120){finish();return}for(const o of nearObstacles()){if(o.type==='rock'&&Math.abs(px-o.x)<19&&py+12>terrain(o.x)-25&&py-20<terrain(o.x)){finish();return}}score+=dt*(air?2:1);distEl.textContent=Math.floor(dist)+' m';scoreEl.textContent=Math.floor(score)}
 function draw(){ctx.clearRect(0,0,W,H);let sky=ctx.createLinearGradient(0,0,0,H);sky.addColorStop(0,'#182b4c');sky.addColorStop(.65,'#b86957');sky.addColorStop(1,'#f4b76b');ctx.fillStyle=sky;ctx.fillRect(0,0,W,H);
 ctx.fillStyle='#f9c778';ctx.beginPath();ctx.arc(W*.77,H*.27,25,0,TAU);ctx.fill();
 for(let layer=0;layer<2;layer++){ctx.beginPath();ctx.moveTo(0,H);for(let sx=0;sx<=W+5;sx+=5){let x=sx+cam*(layer?.22:.1);let y=H*(layer?.64:.53)+Math.sin(x*.003+layer)*22+Math.sin(x*.008)*9;ctx.lineTo(sx,y)}ctx.lineTo(W,H);ctx.closePath();ctx.fillStyle=layer?'#b47a61':'#825e69';ctx.fill()}
 ctx.beginPath();ctx.moveTo(0,H);for(let sx=0;sx<=W+4;sx+=3)ctx.lineTo(sx,terrain(sx+cam));ctx.lineTo(W,H);ctx.closePath();ctx.fillStyle='#e4a34e';ctx.fill();
+// Cut gaps out of the foreground, exposing the canyon below.
+for(const o of nearObstacles()){if(o.type!=='gap')continue;const x=o.x-cam;if(x>W||x+o.width<0)continue;ctx.fillStyle='#543d47';ctx.fillRect(x,Math.min(terrain(o.x),terrain(o.x+o.width))-2,o.width,H);ctx.fillStyle='#2c2d3c';ctx.fillRect(x+7,Math.min(terrain(o.x),terrain(o.x+o.width))+12,o.width-14,H)}
 ctx.beginPath();for(let sx=0;sx<=W+4;sx+=3){let y=terrain(sx+cam);if(sx===0)ctx.moveTo(sx,y);else ctx.lineTo(sx,y)}ctx.strokeStyle='#ffe0a0';ctx.lineWidth=3;ctx.stroke();
+for(const o of nearObstacles()){if(o.type!=='rock')continue;const x=o.x-cam;if(x< -35||x>W+35)continue;const y=terrain(o.x);ctx.fillStyle='#66514a';ctx.beginPath();ctx.moveTo(x-19,y);ctx.lineTo(x-14,y-17);ctx.lineTo(x-3,y-29);ctx.lineTo(x+13,y-20);ctx.lineTo(x+19,y);ctx.closePath();ctx.fill();ctx.strokeStyle='#a08064';ctx.lineWidth=2;ctx.stroke()}
 let sx=px-cam,sy=py;ctx.save();ctx.translate(sx,sy);ctx.rotate(angle);ctx.strokeStyle='#332d36';ctx.lineWidth=5;ctx.lineCap='round';ctx.beginPath();ctx.moveTo(-15,11);ctx.quadraticCurveTo(0,14,18,9);ctx.stroke();ctx.strokeStyle='#ffdf8a';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(-15,11);ctx.lineTo(18,9);ctx.stroke();ctx.strokeStyle='#17273c';ctx.lineWidth=5;ctx.beginPath();ctx.moveTo(-5,7);ctx.lineTo(-3,-4);ctx.lineTo(7,-9);ctx.moveTo(7,-9);ctx.lineTo(13,-1);ctx.moveTo(-3,-4);ctx.lineTo(-12,2);ctx.stroke();ctx.fillStyle='#f5c4a0';ctx.beginPath();ctx.arc(8,-17,6,0,TAU);ctx.fill();ctx.fillStyle='#e76f38';ctx.beginPath();ctx.arc(8,-20,7,Math.PI,TAU);ctx.lineTo(15,-17);ctx.fill();ctx.restore()}
 function frame(t){let dt=Math.min((t-last)/1000||0,.033);last=t;update(dt);draw();requestAnimationFrame(frame)}
 resize();py=terrain(0)-12;angle=slope(0);requestAnimationFrame(frame);window.addEventListener('resize',resize);
